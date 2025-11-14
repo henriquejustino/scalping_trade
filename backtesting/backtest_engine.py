@@ -41,11 +41,23 @@ class BacktestEngine:
         df_5m = self.data_manager.get_ohlcv_data(symbol, '5m', limit=10000)
         df_15m = self.data_manager.get_ohlcv_data(symbol, '15m', limit=5000)
         
-        # Filtra por data
-        df_5m = df_5m[start_date:end_date]
-        df_15m = df_15m[start_date:end_date]
+        if df_5m.empty or df_15m.empty:
+            return {'error': 'Não foi possível carregar dados históricos'}
+        
+        # CORREÇÃO: Filtra por data usando o índice datetime corretamente
+        try:
+            df_5m = df_5m.loc[start_date:end_date]
+            df_15m = df_15m.loc[start_date:end_date]
+        except Exception as e:
+            logger.warning(f"Erro ao filtrar datas: {e}. Usando todos os dados disponíveis.")
+            # Usa os últimos dados se não conseguir filtrar
+            df_5m = df_5m.tail(2000)
+            df_15m = df_15m.tail(1000)
         
         logger.info(f"Dados carregados: {len(df_5m)} candles (5m)")
+        
+        if len(df_5m) < 100:
+            return {'error': 'Dados insuficientes para backtest'}
         
         # Itera pelos candles
         for i in range(100, len(df_5m)):
@@ -55,6 +67,9 @@ class BacktestEngine:
             # Dados até o momento atual
             hist_5m = df_5m.iloc[:i+1]
             hist_15m = df_15m[df_15m.index <= current_time]
+            
+            if len(hist_15m) < 50:
+                continue
             
             # Se não tem posição, busca entrada
             if self.current_position is None:
