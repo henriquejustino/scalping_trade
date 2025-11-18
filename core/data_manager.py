@@ -19,6 +19,11 @@ class DataManager:
         """Obtém dados OHLCV"""
         cache_key = f"{symbol}_{timeframe}"
         
+        # CORREÇÃO: Binance limita a 1500 candles por request
+        if limit > 1500:
+            logger.warning(f"Limit {limit} excede máximo da Binance (1500). Ajustando...")
+            limit = 1500
+        
         try:
             klines = self.client.get_klines(symbol, timeframe, limit)
             

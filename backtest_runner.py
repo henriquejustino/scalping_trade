@@ -1,5 +1,6 @@
 from decimal import Decimal
 from loguru import logger
+from datetime import datetime, timedelta
 from config.symbols import TRADING_SYMBOLS
 from core.binance_client import BinanceClient
 from core.data_manager import DataManager
@@ -14,7 +15,7 @@ def run_backtest(
     symbol: str,
     start_date: str,
     end_date: str,
-    initial_capital: Decimal = Decimal('1000')
+    initial_capital: Decimal = Decimal('10000')
 ):
     """Executa backtest para um símbolo"""
     
@@ -40,7 +41,7 @@ def run_backtest(
     
     if 'error' in results:
         logger.error(f"Erro: {results['error']}")
-        return
+        return None
     
     # Calcula métricas
     metrics = PerformanceMetrics.calculate_metrics(results)
@@ -96,7 +97,8 @@ def run_multi_symbol_backtest(
     for symbol in symbols:
         try:
             results = run_backtest(symbol, start_date, end_date)
-            all_results[symbol] = results
+            if results is not None:
+                all_results[symbol] = results
         except Exception as e:
             logger.error(f"Erro no backtest de {symbol}: {e}")
     
@@ -104,6 +106,10 @@ def run_multi_symbol_backtest(
     print(f"\n{'='*60}")
     print("RESUMO GERAL")
     print(f"{'='*60}")
+    
+    if len(all_results) == 0:
+        print("❌ Nenhum backtest executado com sucesso")
+        return {}
     
     total_return = sum(r['total_return_pct'] for r in all_results.values())
     avg_win_rate = sum(r['win_rate'] for r in all_results.values()) / len(all_results)
@@ -116,18 +122,24 @@ def run_multi_symbol_backtest(
 
 
 if __name__ == '__main__':
-    # Exemplo de uso
+    # CORREÇÃO: Usa últimos 30 dias de dados REAIS
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    print(f"📅 Período do backtest: {start_date} até {end_date}")
+    print(f"   (Últimos 30 dias de dados reais)\n")
     
     # Backtest único
-    # run_backtest(
-    #     symbol='BTCUSDT',
-    #     start_date='2024-01-01',
-    #     end_date='2024-12-31'
-    # )
-    
-    # Backtest múltiplos símbolos
-    run_multi_symbol_backtest(
-        symbols=TRADING_SYMBOLS[:3],  # Testa 3 primeiros
-        start_date='2025-10-01',
-        end_date='2025-11-01'
+    run_backtest(
+        symbol='BTCUSDT',
+        start_date=start_date,
+        end_date=end_date,
+        initial_capital=Decimal('1000')
     )
+    
+    # Para testar múltiplos símbolos, descomente:
+    # run_multi_symbol_backtest(
+    #     symbols=['BTCUSDT', 'ETHUSDT', 'BNBUSDT'],
+    #     start_date=start_date,
+    #     end_date=end_date
+    # )

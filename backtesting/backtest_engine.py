@@ -7,6 +7,10 @@ from core.data_manager import DataManager
 from strategies.scalping_ensemble import ScalpingEnsemble
 from risk_management.position_sizer import PositionSizer
 from risk_management.risk_calculator import RiskCalculator
+import warnings
+import pandas as pd
+
+warnings.filterwarnings('ignore', category=pd.errors.SettingWithCopyWarning)
 
 class BacktestEngine:
     def __init__(
@@ -37,24 +41,23 @@ class BacktestEngine:
         
         logger.info(f"Iniciando backtest: {symbol} de {start_date} até {end_date}")
         
-        # Carrega dados históricos
-        df_5m = self.data_manager.get_ohlcv_data(symbol, '5m', limit=10000)
-        df_15m = self.data_manager.get_ohlcv_data(symbol, '15m', limit=5000)
+        # CORREÇÃO: Usa limite de 1500 (máximo da Binance)
+        df_5m = self.data_manager.get_ohlcv_data(symbol, '5m', limit=1500)
+        df_15m = self.data_manager.get_ohlcv_data(symbol, '15m', limit=1500)
         
         if df_5m.empty or df_15m.empty:
             return {'error': 'Não foi possível carregar dados históricos'}
         
-        # CORREÇÃO: Filtra por data usando o índice datetime corretamente
+        # Filtra por data usando o índice datetime corretamente
         try:
             df_5m = df_5m.loc[start_date:end_date]
             df_15m = df_15m.loc[start_date:end_date]
         except Exception as e:
             logger.warning(f"Erro ao filtrar datas: {e}. Usando todos os dados disponíveis.")
             # Usa os últimos dados se não conseguir filtrar
-            df_5m = df_5m.tail(2000)
-            df_15m = df_15m.tail(1000)
+            pass
         
-        logger.info(f"Dados carregados: {len(df_5m)} candles (5m)")
+        logger.info(f"Dados carregados: {len(df_5m)} candles (5m), {len(df_15m)} candles (15m)")
         
         if len(df_5m) < 100:
             return {'error': 'Dados insuficientes para backtest'}
@@ -65,8 +68,8 @@ class BacktestEngine:
             current_price = Decimal(str(df_5m['close'].iloc[i]))
             
             # Dados até o momento atual
-            hist_5m = df_5m.iloc[:i+1]
-            hist_15m = df_15m[df_15m.index <= current_time]
+            hist_5m = df_5m.iloc[:i+1].copy()
+            hist_15m = df_15m[df_15m.index <= current_time].copy()
             
             if len(hist_15m) < 50:
                 continue
