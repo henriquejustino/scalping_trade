@@ -13,17 +13,24 @@ class PositionSizer:
         entry_price: Decimal,
         stop_loss_price: Decimal,
         symbol_filters: dict,
-        signal_strength: float
+        signal_strength: float,
+        volume_ratio: float = 1.0
     ) -> Optional[Decimal]:
         """Calcula tamanho da posição com risco dinâmico"""
         
-        # Risco dinâmico baseado na força do sinal
-        if signal_strength >= settings.SIGNAL_VERY_STRONG:
+        # === VALIDAÇÃO DE VOLUME ===
+        # Não entra se volume está abaixo da média (illiquid)
+        if volume_ratio < 0.8:
+            logger.warning(f"Volume baixo: {volume_ratio:.2f}x (mínimo 0.8x). Rejeitando trade.")
+            return None
+        
+        # Risco dinâmico baseado na força do sinal E volume
+        if signal_strength >= settings.SIGNAL_VERY_STRONG and volume_ratio > 1.3:
             risk_multiplier = Decimal("1.5")  # 3%
-            logger.info(f"💪 Sinal MUITO FORTE ({signal_strength:.2f}) - 3% risco")
-        elif signal_strength >= settings.SIGNAL_STRONG:
+            logger.info(f"💪 Sinal MUITO FORTE ({signal_strength:.2f}) + Volume HIGH - 3% risco")
+        elif signal_strength >= settings.SIGNAL_STRONG and volume_ratio > 1.1:
             risk_multiplier = Decimal("1.25")  # 2.5%
-            logger.info(f"👍 Sinal FORTE ({signal_strength:.2f}) - 2.5% risco")
+            logger.info(f"👍 Sinal FORTE ({signal_strength:.2f}) + Volume OK - 2.5% risco")
         elif signal_strength >= settings.SIGNAL_MEDIUM:
             risk_multiplier = Decimal("1.0")  # 2%
             logger.info(f"✋ Sinal MÉDIO ({signal_strength:.2f}) - 2% risco")
@@ -81,7 +88,7 @@ class PositionSizer:
         logger.info(
             f"Posição calculada: {quantity} "
             f"(${quantity * entry_price:.2f}) "
-            f"Risco: {dynamic_risk * 100:.2f}%"
+            f"Risco: {dynamic_risk * 100:.2f}% | Volume: {volume_ratio:.2f}x"
         )
         
         return quantity

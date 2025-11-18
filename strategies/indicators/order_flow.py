@@ -5,27 +5,43 @@ from decimal import Decimal
 from strategies.base_strategy import BaseStrategy
 
 class OrderFlowStrategy(BaseStrategy):
-    def __init__(self):
+    def __init__(self, atr_multiplier=1.8):
         super().__init__("Order_Flow")
+        self.atr_multiplier = atr_multiplier
     
     def calculate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        
         # Delta volume (buy - sell pressure)
         df['delta_volume'] = np.where(
-            df['close'] > df['open'],
+            df['close'] >= df['open'],
             df['volume'],
             -df['volume']
         )
         
         df['cumulative_delta'] = df['delta_volume'].cumsum()
-        df['delta_ma'] = df['delta_volume'].rolling(window=14).mean()
+        df['delta_ma_14'] = df['delta_volume'].rolling(window=14).mean()
+        df['delta_std'] = df['delta_volume'].rolling(window=14).std()
         
         # Volume profile
         df['volume_ma'] = df['volume'].rolling(window=20).mean()
-        df['volume_ratio'] = df['volume'] / df['volume_ma']
+        df['volume_ratio'] = df['volume'] / (df['volume_ma'] + 1e-10)
         
-        # Price momentum
-        df['price_change'] = df['close'].pct_change()
-        df['volume_weighted_price'] = df['price_change'] * df['volume_ratio']
+        # ATR usando pandas rolling corretamente
+        df['tr'] = pd.DataFrame({
+            'hl': df['high'] - df['low'],
+            'hc': abs(df['high'] - df['close'].shift(1)),
+            'lc': abs(df['low'] - df['close'].shift(1))
+        }).max(axis=1)
+        
+        df['atr'] = df['tr'].rolling(window=14).mean()
+        
+        # Força da pressão (z-score do delta volume)
+        df['delta_zscore'] = (df['delta_volume'] - df['delta_ma_14']) / (df['delta_std'] + 1e-10)
+        
+        # Candle color
+        df['is_bullish'] = df['close'] >= df['open']
+        df['is_bearish'] = df['close'] < df['open']
         
         return df
     
@@ -35,21 +51,48 @@ class OrderFlowStrategy(BaseStrategy):
         
         df = self.calculate_signals(df)
         
-        delta = df['delta_volume'].iloc[-1]
-        delta_ma = df['delta_ma'].iloc[-1]
-        volume_ratio = df['volume_ratio'].iloc[-1]
+        try:
+            delta = float(df['delta_volume'].iloc[-1])
+            delta_ma = float(df['delta_ma_14'].iloc[-1])
+            delta_zscore = float(df['delta_zscore'].iloc[-1])
+            volume_ratio = float(df['volume_ratio'].iloc[-1])
+            is_bullish = bool(df['is_bullish'].iloc[-1])
+            is_bearish = bool(df['is_bearish'].iloc[-1])
+        except (KeyError, IndexError, TypeError):
+            return None, 0.0
         
-        # LONG: buying pressure
-        if delta > 0 and delta > delta_ma * 1.5 and volume_ratio > 1.2:
-            strength = min((delta / abs(delta_ma)) / 5.0, 1.0)
-            strength = min(strength * volume_ratio, 1.0)
-            return 'BUY', strength
+        # Valores default para NaN
+        if pd.isna(delta_zscore):
+            delta_zscore = 0.0
+        if pd.isna(delta_ma):
+            delta_ma = 0.0
+        if pd.isna(volume_ratio):
+            volume_ratio = 1.0
         
-        # SHORT: selling pressure
-        elif delta < 0 and delta < delta_ma * 1.5 and volume_ratio > 1.2:
-            strength = min((abs(delta) / abs(delta_ma)) / 5.0, 1.0)
-            strength = min(strength * volume_ratio, 1.0)
-            return 'SELL', strength
+        # === LONG: Pressão compradora forte + volume alto + candle bullish ===
+        if (delta > delta_ma and 
+            delta_zscore > 1.5 and  # Z-score > 1.5 = significante
+            volume_ratio > 1.0 and
+            is_bullish):
+            
+            # Força baseada em intensidade da pressão e volume
+            strength = min(
+                0.5 + (delta_zscore / 5.0) + ((volume_ratio - 1) * 0.2),
+                1.0
+            )
+            return 'BUY', max(strength, 0.4)
+        
+        # === SHORT: Pressão vendedora forte + volume alto + candle bearish ===
+        elif (delta < delta_ma and 
+              delta_zscore < -1.5 and
+              volume_ratio > 1.0 and
+              is_bearish):
+            
+            strength = min(
+                0.5 + (abs(delta_zscore) / 5.0) + ((volume_ratio - 1) * 0.2),
+                1.0
+            )
+            return 'SELL', max(strength, 0.4)
         
         return None, 0.0
     
@@ -59,8 +102,15 @@ class OrderFlowStrategy(BaseStrategy):
         entry_price: Decimal,
         side: str
     ) -> Decimal:
-        recent_range = df['high'].tail(10).max() - df['low'].tail(10).min()
-        stop_distance = Decimal(str(recent_range)) * Decimal('0.4')
+        """SL: 1.8 ATR"""
+        df = self.calculate_signals(df)
+        
+        atr = df['atr'].iloc[-1]
+        if pd.isna(atr) or atr == 0:
+            atr = 100
+        
+        atr = Decimal(str(atr))
+        stop_distance = atr * Decimal(str(self.atr_multiplier))
         
         if side == 'BUY':
             return entry_price - stop_distance
@@ -73,8 +123,15 @@ class OrderFlowStrategy(BaseStrategy):
         entry_price: Decimal,
         side: str
     ) -> Decimal:
-        recent_range = df['high'].tail(10).max() - df['low'].tail(10).min()
-        tp_distance = Decimal(str(recent_range)) * Decimal('0.8')
+        """TP: R:R 1:1.5"""
+        df = self.calculate_signals(df)
+        
+        atr = df['atr'].iloc[-1]
+        if pd.isna(atr) or atr == 0:
+            atr = 100
+        
+        atr = Decimal(str(atr))
+        tp_distance = atr * Decimal('2.7')
         
         if side == 'BUY':
             return entry_price + tp_distance

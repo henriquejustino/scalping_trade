@@ -2,88 +2,38 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional
 from decimal import Decimal
 from loguru import logger
-
-# Importa TODAS as estratégias
 from strategies.indicators.rsi_strategy import RSIStrategy
 from strategies.indicators.ema_crossover import EMACrossover
 from strategies.indicators.bollinger_bands import BollingerBandsStrategy
 from strategies.indicators.vwap_strategy import VWAPStrategy
 from strategies.indicators.order_flow import OrderFlowStrategy
 
-# Novas estratégias
-from strategies.indicators.ema_vwap_strategy import EMAVWAPCrossover
-from strategies.indicators.pullback_ema_strategy import PullbackEMAStrategy
-from strategies.indicators.bollinger_rsi_advanced import BollingerRSIAdvanced
-from strategies.indicators.breakout_reteste_strategy import BreakoutRetesteStrategy
-from strategies.indicators.liquidez_strategy import LiquidezStrategy
-
-# Market Regime Detector
-from strategies.market_detector import MarketRegimeDetector
-
-
 class SmartScalpingEnsemble:
     """
-    Ensemble Inteligente que:
-    1. Detecta tipo de mercado
-    2. Ativa automaticamente as melhores estratégias para aquele regime
-    3. Combina sinais de forma ponderada
+    Ensemble Simplificado para Scalping:
+    - Prioriza sinais alinhados entre timeframes
+    - Stop Loss e Take Profit baseados em ATR (não em % fixo)
+    - Thresholds adaptativos
     """
     
     def __init__(self):
-        # === TODAS AS ESTRATÉGIAS DISPONÍVEIS ===
-        self.all_strategies = {
-            # Originais
+        # Todas as estratégias
+        self.strategies = {
             'rsi': RSIStrategy(),
             'ema': EMACrossover(),
             'bb': BollingerBandsStrategy(),
             'vwap': VWAPStrategy(),
-            'order_flow': OrderFlowStrategy(),
-            
-            # Novas
-            'ema_vwap': EMAVWAPCrossover(),
-            'pullback': PullbackEMAStrategy(),
-            'bollinger_rsi': BollingerRSIAdvanced(),
-            'breakout': BreakoutRetesteStrategy(),
-            'liquidez': LiquidezStrategy()
+            'order_flow': OrderFlowStrategy()
         }
         
-        # Detector de regime
-        self.regime_detector = MarketRegimeDetector()
-        
-        # === MAPEAMENTO: REGIME -> ESTRATÉGIAS ===
-        self.regime_strategies = {
-            'TRENDING_UP': {
-                'ema_vwap': 0.30,      # EMA + VWAP para tendência
-                'pullback': 0.30,       # Pullback na tendência
-                'ema': 0.20,            # EMA crossover
-                'vwap': 0.20            # VWAP confirmation
-            },
-            'TRENDING_DOWN': {
-                'ema_vwap': 0.30,
-                'pullback': 0.30,
-                'ema': 0.20,
-                'vwap': 0.20
-            },
-            'RANGING': {
-                'bollinger_rsi': 0.35,  # BB + RSI para reversão
-                'bb': 0.25,              # Bollinger puro
-                'rsi': 0.25,             # RSI puro
-                'vwap': 0.15             # Mean reversion no VWAP
-            },
-            'HIGH_VOLATILITY': {
-                'liquidez': 0.40,        # Captura liquidez
-                'bollinger_rsi': 0.30,   # Extremos
-                'order_flow': 0.30       # Pressão compradora/vendedora
-            },
-            'BREAKOUT_FORMING': {
-                'breakout': 0.50,        # Especialista em breakout
-                'ema_vwap': 0.25,        # Confirma direção
-                'order_flow': 0.25       # Confirma pressão
-            }
+        # Pesos equilibrados
+        self.weights = {
+            'rsi': 0.25,
+            'ema': 0.25,
+            'bb': 0.20,
+            'vwap': 0.15,
+            'order_flow': 0.15
         }
-        
-        self.current_regime = None
-        self.active_strategies = {}
     
     def get_ensemble_signal(
         self,
@@ -91,99 +41,125 @@ class SmartScalpingEnsemble:
         df_15m: pd.DataFrame
     ) -> Tuple[Optional[str], float, Dict]:
         """
-        Retorna sinal consolidado:
-        1. Detecta regime
-        2. Ativa estratégias apropriadas
-        3. Combina sinais
+        Procura por convergência entre:
+        1. Múltiplas estratégias NO MESMO TIMEFRAME
+        2. Alinhamento entre timeframes (5m e 15m)
         """
         
-        # === DETECTA REGIME DO MERCADO ===
-        self.current_regime = self.regime_detector.detect_regime(df_5m, df_15m)
-        
-        # === SELECIONA ESTRATÉGIAS PARA O REGIME ===
-        self.active_strategies = self.regime_strategies.get(
-            self.current_regime,
-            self.regime_strategies['RANGING']  # Fallback
-        )
-        
-        logger.info(f"📊 Regime: {self.current_regime}")
-        logger.info(f"🎯 Estratégias ativas: {list(self.active_strategies.keys())}")
-        
-        # === COLETA SINAIS DAS ESTRATÉGIAS ATIVAS ===
         signals_5m = {}
         signals_15m = {}
         
-        for name, weight in self.active_strategies.items():
-            strategy = self.all_strategies[name]
-            
+        # === COLETA SINAIS ===
+        for name, strategy in self.strategies.items():
             try:
-                # Sinais do 5m
                 side_5m, strength_5m = strategy.get_entry_signal(df_5m)
-                signals_5m[name] = (side_5m, strength_5m, weight)
+                signals_5m[name] = (side_5m, strength_5m)
                 
-                # Sinais do 15m (confirmação)
                 side_15m, strength_15m = strategy.get_entry_signal(df_15m)
                 signals_15m[name] = (side_15m, strength_15m)
-                
             except Exception as e:
-                logger.warning(f"Erro em {name}: {e}")
-                signals_5m[name] = (None, 0.0, weight)
+                logger.debug(f"Erro em {name}: {e}")
+                signals_5m[name] = (None, 0.0)
                 signals_15m[name] = (None, 0.0)
         
-        # === CALCULA FORÇA PONDERADA ===
-        buy_strength = 0.0
-        sell_strength = 0.0
+        # === ANÁLISE DE CONVERGÊNCIA ===
+        # Conta quantas estratégias sinalizam BUY/SELL em cada timeframe
+        buy_count_5m = sum(1 for s, _ in signals_5m.values() if s == 'BUY')
+        sell_count_5m = sum(1 for s, _ in signals_5m.values() if s == 'SELL')
+        buy_count_15m = sum(1 for s, _ in signals_15m.values() if s == 'BUY')
+        sell_count_15m = sum(1 for s, _ in signals_15m.values() if s == 'SELL')
         
-        for name, (side_5m, strength_5m, weight) in signals_5m.items():
-            side_15m, strength_15m = signals_15m[name]
-            
-            # Combina 5m (70%) + 15m (30%)
-            combined_strength = (strength_5m * 0.7) + (strength_15m * 0.3)
-            
-            if side_5m == 'BUY':
-                # Bônus se 15m confirma
-                if side_15m == 'BUY':
-                    combined_strength *= 1.15
-                buy_strength += combined_strength * weight
-                
-            elif side_5m == 'SELL':
-                if side_15m == 'SELL':
-                    combined_strength *= 1.15
-                sell_strength += combined_strength * weight
+        # === SCORING COM PESOS ===
+        buy_score_5m = 0.0
+        sell_score_5m = 0.0
         
-        # === DETERMINA SINAL FINAL ===
+        for name, (side, strength) in signals_5m.items():
+            if side == 'BUY':
+                buy_score_5m += strength * self.weights[name]
+            elif side == 'SELL':
+                sell_score_5m += strength * self.weights[name]
+        
+        buy_score_15m = 0.0
+        sell_score_15m = 0.0
+        
+        for name, (side, strength) in signals_15m.items():
+            if side == 'BUY':
+                buy_score_15m += strength * self.weights[name]
+            elif side == 'SELL':
+                sell_score_15m += strength * self.weights[name]
+        
+        # === COMBINAÇÃO DE SCORES ===
+        # 5m = 65% da decisão (entrada rápida)
+        # 15m = 35% da decisão (confirmação de tendência)
+        
+        final_buy_score = (buy_score_5m * 0.65) + (buy_score_15m * 0.35)
+        final_sell_score = (sell_score_5m * 0.65) + (sell_score_15m * 0.35)
+        
+        # === BÔNUS POR ALINHAMENTO ===
+        # Se ambos timeframes concordam, aumenta confiança
+        if buy_count_5m >= 2 and buy_count_15m >= 2:
+            final_buy_score *= 1.25  # 25% de bônus
+        
+        if sell_count_5m >= 2 and sell_count_15m >= 2:
+            final_sell_score *= 1.25
+        
+        # === PENALIDADE POR DIVERGÊNCIA ===
+        # Se 5m e 15m discordam, reduz confiança
+        if (buy_score_5m > 0.4 and sell_score_15m > 0.4):
+            final_buy_score *= 0.5  # Penalidade severa
+        
+        if (sell_score_5m > 0.4 and buy_score_15m > 0.4):
+            final_sell_score *= 0.5
+        
+        # === THRESHOLD ADAPTATIVO ===
+        # Com muita convergência (3+ sinais): threshold baixo
+        # Com pouca convergência: threshold alto
+        
+        if buy_count_5m >= 3 or buy_count_15m >= 3:
+            buy_threshold = 0.25
+        elif buy_count_5m >= 2 or buy_count_15m >= 2:
+            buy_threshold = 0.35
+        else:
+            buy_threshold = 0.45
+        
+        if sell_count_5m >= 3 or sell_count_15m >= 3:
+            sell_threshold = 0.25
+        elif sell_count_5m >= 2 or sell_count_15m >= 2:
+            sell_threshold = 0.35
+        else:
+            sell_threshold = 0.45
+        
+        # === DECISÃO FINAL ===
         details = {
-            'regime': self.current_regime,
-            'active_strategies': list(self.active_strategies.keys()),
-            'buy_strength': buy_strength,
-            'sell_strength': sell_strength,
-            'signals_5m': {k: (v[0], v[1]) for k, v in signals_5m.items()},
-            'signals_15m': signals_15m
+            'buy_score': round(final_buy_score, 4),
+            'sell_score': round(final_sell_score, 4),
+            'buy_threshold': buy_threshold,
+            'sell_threshold': sell_threshold,
+            'buy_agreements_5m': buy_count_5m,
+            'sell_agreements_5m': sell_count_5m,
+            'buy_agreements_15m': buy_count_15m,
+            'sell_agreements_15m': sell_count_15m,
+            'signals_5m': {k: (v[0], round(v[1], 3)) for k, v in signals_5m.items()},
+            'signals_15m': {k: (v[0], round(v[1], 3)) for k, v in signals_15m.items()}
         }
         
-        # Threshold adaptativo baseado no regime
-        min_threshold = self._get_threshold_for_regime(self.current_regime)
+        if final_buy_score > final_sell_score and final_buy_score > buy_threshold:
+            final_strength = min(final_buy_score, 1.0)
+            logger.info(
+                f"✅ SINAL LONG - Score: {final_buy_score:.3f} "
+                f"(Threshold: {buy_threshold}) | Acordos: 5m={buy_count_5m} 15m={buy_count_15m}"
+            )
+            return 'BUY', final_strength, details
         
-        if buy_strength > sell_strength and buy_strength > min_threshold:
-            logger.info(f"✅ SINAL LONG | Força: {buy_strength:.2f}")
-            return 'BUY', buy_strength, details
-        
-        elif sell_strength > buy_strength and sell_strength > min_threshold:
-            logger.info(f"✅ SINAL SHORT | Força: {sell_strength:.2f}")
-            return 'SELL', sell_strength, details
+        elif final_sell_score > final_buy_score and final_sell_score > sell_threshold:
+            final_strength = min(final_sell_score, 1.0)
+            logger.info(
+                f"✅ SINAL SHORT - Score: {final_sell_score:.3f} "
+                f"(Threshold: {sell_threshold}) | Acordos: 5m={sell_count_5m} 15m={sell_count_15m}"
+            )
+            return 'SELL', final_strength, details
         
         return None, 0.0, details
-    
-    def _get_threshold_for_regime(self, regime: str) -> float:
-        """Threshold mínimo varia por regime"""
-        thresholds = {
-            'TRENDING_UP': 0.25,      # Mais permissivo em tendência
-            'TRENDING_DOWN': 0.25,
-            'RANGING': 0.35,          # Mais rigoroso em lateral
-            'HIGH_VOLATILITY': 0.30,  # Moderado em volatilidade
-            'BREAKOUT_FORMING': 0.40  # Muito rigoroso em breakout
-        }
-        return thresholds.get(regime, 0.30)
     
     def calculate_stop_loss(
         self,
@@ -191,25 +167,31 @@ class SmartScalpingEnsemble:
         entry_price: Decimal,
         side: str
     ) -> Decimal:
-        """Usa média dos SLs das estratégias ativas"""
+        """
+        SL baseado em ATR (robusto para different volatilidades)
+        Usa mediana de todos os estratégias
+        """
         stop_losses = []
         
-        for name in self.active_strategies.keys():
-            strategy = self.all_strategies[name]
+        for strategy in self.strategies.values():
             try:
                 sl = strategy.calculate_stop_loss(df, entry_price, side)
-                stop_losses.append(sl)
+                if sl:
+                    stop_losses.append(float(sl))
             except Exception as e:
-                logger.warning(f"Erro calculando SL em {name}: {e}")
+                pass
         
         if not stop_losses:
-            # Fallback
+            # Fallback: 2% de distância
             if side == 'BUY':
-                return entry_price * Decimal('0.99')
+                return entry_price * Decimal('0.98')
             else:
-                return entry_price * Decimal('1.01')
+                return entry_price * Decimal('1.02')
         
-        return sum(stop_losses) / len(stop_losses)
+        # Mediana é mais robusta que média
+        stop_losses.sort()
+        median = stop_losses[len(stop_losses) // 2]
+        return Decimal(str(median))
     
     def calculate_take_profit(
         self,
@@ -217,30 +199,27 @@ class SmartScalpingEnsemble:
         entry_price: Decimal,
         side: str
     ) -> Decimal:
-        """Usa média dos TPs das estratégias ativas"""
+        """
+        TP: Mantém R:R razoável (~1:1.5)
+        Usa mediana
+        """
         take_profits = []
         
-        for name in self.active_strategies.keys():
-            strategy = self.all_strategies[name]
+        for strategy in self.strategies.values():
             try:
                 tp = strategy.calculate_take_profit(df, entry_price, side)
-                take_profits.append(tp)
+                if tp:
+                    take_profits.append(float(tp))
             except Exception as e:
-                logger.warning(f"Erro calculando TP em {name}: {e}")
+                pass
         
         if not take_profits:
             # Fallback
             if side == 'BUY':
-                return entry_price * Decimal('1.02')
+                return entry_price * Decimal('1.03')
             else:
-                return entry_price * Decimal('0.98')
+                return entry_price * Decimal('0.97')
         
-        return sum(take_profits) / len(take_profits)
-    
-    def get_regime_info(self) -> Dict:
-        """Retorna informações do regime atual"""
-        return {
-            'current_regime': self.current_regime,
-            'active_strategies': list(self.active_strategies.keys()),
-            'summary': self.regime_detector.get_regime_summary()
-        }
+        take_profits.sort()
+        median = take_profits[len(take_profits) // 2]
+        return Decimal(str(median))
