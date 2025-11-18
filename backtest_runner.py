@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from config.symbols import TRADING_SYMBOLS
 from core.binance_client import BinanceClient
 from core.data_manager import DataManager
-from strategies.scalping_ensemble import ScalpingEnsemble
+from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_metrics import PerformanceMetrics
 import json
@@ -28,7 +28,7 @@ def run_backtest(
     # Inicializa componentes
     client = BinanceClient(environment='backtest')
     data_manager = DataManager(client)
-    strategy = ScalpingEnsemble()
+    strategy = SmartScalpingEnsemble()
     
     engine = BacktestEngine(
         data_manager=data_manager,

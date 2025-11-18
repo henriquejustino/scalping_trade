@@ -6,7 +6,7 @@ from config.symbols import TRADING_SYMBOLS
 from core.binance_client import BinanceClient
 from core.data_manager import DataManager
 from core.position_manager import PositionManager
-from strategies.scalping_ensemble import ScalpingEnsemble
+from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
 from risk_management.position_sizer import PositionSizer
 from risk_management.risk_calculator import RiskCalculator
 from execution.trade_executor import TradeExecutor
@@ -28,7 +28,7 @@ class ScalpingBot:
         self.client = BinanceClient(environment)
         self.data_manager = DataManager(self.client)
         self.position_manager = PositionManager()
-        self.strategy = ScalpingEnsemble()
+        self.strategy = SmartScalpingEnsemble()
         self.position_sizer = PositionSizer()
         self.risk_calculator = RiskCalculator()
         
