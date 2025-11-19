@@ -14,7 +14,7 @@ def optimize_rsi_parameters(symbol='BTCUSDT', start_date='2024-10-01', end_date=
     from core.binance_client import BinanceClient
     from core.data_manager import DataManager
     from strategies.indicators.rsi_strategy import RSIStrategy
-    from backtesting.backtest_engine import BacktestEngineV2
+    from backtesting.backtest_engine import BacktestEngine
     
     print("🔍 Otimizando parâmetros RSI...")
     print(f"Símbolo: {symbol}")
@@ -42,7 +42,7 @@ def optimize_rsi_parameters(symbol='BTCUSDT', start_date='2024-10-01', end_date=
             client = BinanceClient(environment='backtest')
             data_manager = DataManager(client)
             
-            engine = BacktestEngineV2(
+            engine = BacktestEngine(
                 data_manager=data_manager,
                 strategy=strategy,
                 initial_capital=Decimal('10000')

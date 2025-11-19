@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from loguru import logger
 
-logger.add("data/logs/analysis_{time}.log", rotation="1 day")
+logger.add("data/logs/backtest_results_v2_{symbol}_{start_date}_{end_date}.log", rotation="1 day")
 
 class BacktestAnalyzer:
     """Analisa resultados de backtest e emite parecer profissional"""

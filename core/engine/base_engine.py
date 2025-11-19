@@ -103,6 +103,11 @@ class BaseEngine(ABC):
         pass
     
     @abstractmethod
+    def run(self):
+        """Executa o engine (implementação específica em subclasses)"""
+        pass
+    
+    @abstractmethod
     def validate_trade(self, side: str, entry: Decimal, sl: Decimal, tp: Decimal) -> bool:
         """Valida parâmetros do trade antes de executar"""
         pass

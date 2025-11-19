@@ -5,7 +5,7 @@ from config.symbols import TRADING_SYMBOLS
 from core.binance_client import BinanceClient
 from core.data_manager import DataManager
 from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
-from backtesting.backtest_engine import BacktestEngineV2
+from backtesting.backtest_engine import BacktestEngine
 from backtesting.performance_metrics import PerformanceMetrics
 import json
 import pandas as pd
@@ -57,7 +57,7 @@ def run_multi_symbol_backtest(
         print(f"{'='*80}")
         
         try:
-            engine = BacktestEngineV2(
+            engine = BacktestEngine(
                 data_manager=data_manager,
                 strategy=strategy,
                 initial_capital=initial_capital,

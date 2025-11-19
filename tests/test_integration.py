@@ -9,7 +9,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 from loguru import logger
 
-class TestBacktestEngineV2(unittest.TestCase):
+class TestBacktestEngine(unittest.TestCase):
     """Testes de integração do BacktestEngine V2"""
     
     def setUp(self):
@@ -20,7 +20,7 @@ class TestBacktestEngineV2(unittest.TestCase):
     def test_capital_tracking_correctness(self):
         """✅ Testa se capital é atualizado corretamente"""
         
-        from backtesting.backtest_engine import BacktestEngineV2
+        from backtesting.backtest_engine import BacktestEngine
         from core.data.data_manager import DataManager
         from core.binance_client import BinanceClient
         from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
@@ -29,7 +29,7 @@ class TestBacktestEngineV2(unittest.TestCase):
         data_manager = DataManager(client)
         strategy = SmartScalpingEnsemble()
         
-        engine = BacktestEngineV2(
+        engine = BacktestEngine(
             data_manager=data_manager,
             strategy=strategy,
             initial_capital=Decimal('10000')
@@ -82,7 +82,7 @@ class TestBacktestEngineV2(unittest.TestCase):
     def test_trade_validation_rejects_invalid_trades(self):
         """✅ Testa se trades inválidos são rejeitados"""
         
-        from backtesting.backtest_engine import BacktestEngineV2
+        from backtesting.backtest_engine import BacktestEngine
         from core.binance_client import BinanceClient
         from core.data.data_manager import DataManager
         from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
@@ -91,7 +91,7 @@ class TestBacktestEngineV2(unittest.TestCase):
         data_manager = DataManager(client)
         strategy = SmartScalpingEnsemble()
         
-        engine = BacktestEngineV2(
+        engine = BacktestEngine(
             data_manager=data_manager,
             strategy=strategy
         )

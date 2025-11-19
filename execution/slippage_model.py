@@ -58,7 +58,7 @@ class SlippageModel:
         self,
         price: Decimal,
         side: str,
-        volume_ratio: float = 1.0,
+        volume_ratio = 1.0,
         regime: str = "RANGING",
         timestamp: Optional[datetime] = None
     ) -> Decimal:
@@ -68,29 +68,37 @@ class SlippageModel:
         side='SELL': preço cai (você recebe menos)
         """
         
-        slippage_pct = self._calculate_slippage(volume_ratio, regime, timestamp)
+        try:
+            price = Decimal(str(price)) if not isinstance(price, Decimal) else price
+            volume_ratio = float(volume_ratio)
+            
+            slippage_pct = self._calculate_slippage(volume_ratio, regime, timestamp)
+            
+            if side == 'BUY':
+                # Você paga mais na entrada
+                slipped_price = price * (Decimal('1') + slippage_pct)
+            else:
+                # Você recebe menos na entrada de SHORT
+                slipped_price = price * (Decimal('1') - slippage_pct)
+            
+            self._record_slippage(slippage_pct, side, "ENTRY")
+            
+            logger.debug(
+                f"Entry slippage ({side}): {float(slippage_pct)*100:.3f}% | "
+                f"${price:.2f} -> ${slipped_price:.2f}"
+            )
+            
+            return slipped_price
         
-        if side == 'BUY':
-            # Você paga mais na entrada
-            slipped_price = price * (Decimal('1') + slippage_pct)
-        else:
-            # Você recebe menos na entrada de SHORT
-            slipped_price = price * (Decimal('1') - slippage_pct)
-        
-        self._record_slippage(slippage_pct, side, "ENTRY")
-        
-        logger.debug(
-            f"Entry slippage ({side}): {float(slippage_pct)*100:.3f}% | "
-            f"${price:.2f} -> ${slipped_price:.2f}"
-        )
-        
-        return slipped_price
+        except Exception as e:
+            logger.error(f"Erro ao aplicar entry slippage: {e}")
+            return price
     
     def apply_exit_slippage(
         self,
         price: Decimal,
         side: str,
-        volume_ratio: float = 1.0,
+        volume_ratio = 1.0,
         regime: str = "RANGING",
         timestamp: Optional[datetime] = None
     ) -> Decimal:
@@ -100,23 +108,31 @@ class SlippageModel:
         side='SELL': você sai comprando (paga mais)
         """
         
-        slippage_pct = self._calculate_slippage(volume_ratio, regime, timestamp)
+        try:
+            price = Decimal(str(price)) if not isinstance(price, Decimal) else price
+            volume_ratio = float(volume_ratio)
+            
+            slippage_pct = self._calculate_slippage(volume_ratio, regime, timestamp)
+            
+            if side == 'BUY':
+                # Você recebe menos ao vender
+                slipped_price = price * (Decimal('1') - slippage_pct)
+            else:
+                # Você paga mais ao comprar para cobrir
+                slipped_price = price * (Decimal('1') + slippage_pct)
+            
+            self._record_slippage(slippage_pct, side, "EXIT")
+            
+            logger.debug(
+                f"Exit slippage ({side}): {float(slippage_pct)*100:.3f}% | "
+                f"${price:.2f} -> ${slipped_price:.2f}"
+            )
+            
+            return slipped_price
         
-        if side == 'BUY':
-            # Você recebe menos ao vender
-            slipped_price = price * (Decimal('1') - slippage_pct)
-        else:
-            # Você paga mais ao comprar para cobrir
-            slipped_price = price * (Decimal('1') + slippage_pct)
-        
-        self._record_slippage(slippage_pct, side, "EXIT")
-        
-        logger.debug(
-            f"Exit slippage ({side}): {float(slippage_pct)*100:.3f}% | "
-            f"${price:.2f} -> ${slipped_price:.2f}"
-        )
-        
-        return slipped_price
+        except Exception as e:
+            logger.error(f"Erro ao aplicar exit slippage: {e}")
+            return price
     
     def _calculate_slippage(
         self,

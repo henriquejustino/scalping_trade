@@ -10,7 +10,7 @@ from config.symbols import TRADING_SYMBOLS
 from core.binance_client import BinanceClient
 from core.data.data_manager import DataManager
 from strategies.smart_scalping_ensemble import SmartScalpingEnsemble
-from backtesting.backtest_engine import BacktestEngineV2
+from backtesting.backtest_engine import BacktestEngine
 from monitoring.performance_monitor import PerformanceMonitor
 import json
 
@@ -42,7 +42,7 @@ class BacktestRunner:
         logger.info(f"{'='*80}\n")
         
         try:
-            engine = BacktestEngineV2(
+            engine = BacktestEngine(
                 data_manager=self.data_manager,
                 strategy=self.strategy,
                 initial_capital=initial_capital,
@@ -290,10 +290,10 @@ def main():
     
     # === CONFIGURAÇÕES ===
     end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')  # 90 dias
+    start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')  # 30 dias
     
     print(f"\n🚀 BACKTEST RUNNER V2")
-    print(f"Período: {start_date} até {end_date} (90 dias)")
+    print(f"Período: {start_date} até {end_date} (30 dias)")
     
     # Executa backtest
     results = runner.run_multi_symbol(
