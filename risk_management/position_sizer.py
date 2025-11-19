@@ -6,7 +6,7 @@ Correções:
 3. Limites rigorosos de posição
 """
 from decimal import Decimal
-from typing import Optional, Dict
+from typing import Dict, List, Optional, Tuple
 from loguru import logger
 from config.settings import settings
 from core.utils import round_down

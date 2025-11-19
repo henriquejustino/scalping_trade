@@ -1,11 +1,14 @@
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, List
 from datetime import datetime
 from loguru import logger
 from core.binance_client import BinanceClient
 from core.position_manager import PositionManager
 from execution.trade_executor import TradeExecutorV2
 from config.settings import settings
+from decimal import Decimal
+from risk_management.position_sizer import PositionSizerV2
+
 
 class OrderTracker:
     """Rastreia ordens e posições abertas"""
@@ -44,7 +47,7 @@ class OrderTracker:
             except Exception as e:
                 logger.error(f"Erro monitorando {position.symbol}: {e}")
     
-    def _check_stop_loss(self, position: Position, current_price: Decimal) -> bool:
+    def _check_stop_loss(self, position: PositionSizerV2, current_price: Decimal) -> bool:
         """Verifica se SL foi atingido"""
         
         if position.side == 'BUY':
@@ -52,7 +55,7 @@ class OrderTracker:
         else:
             return current_price >= position.stop_loss
     
-    def _handle_take_profit(self, position: Position, tp_level: str):
+    def _handle_take_profit(self, position: PositionSizerV2, tp_level: str):
         """Gerencia TP multinível"""
         
         from config.settings import settings
