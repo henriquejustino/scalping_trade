@@ -1,11 +1,11 @@
 import unittest
 from decimal import Decimal
-from risk_management.position_sizer import PositionSizer
+from risk_management.position_sizer import PositionSizerV2
 from risk_management.risk_calculator import RiskCalculator
 
 class TestRiskManagement(unittest.TestCase):
     def setUp(self):
-        self.position_sizer = PositionSizer()
+        self.position_sizer = PositionSizerV2()
         self.risk_calculator = RiskCalculator()
         
         self.filters = {

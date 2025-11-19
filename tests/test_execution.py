@@ -1,17 +1,17 @@
 import unittest
 from unittest.mock import Mock, MagicMock
 from decimal import Decimal
-from execution.trade_executor import TradeExecutor
+from execution.trade_executor import TradeExecutorV2
 from core.position_manager import PositionManager
-from risk_management.position_sizer import PositionSizer
+from risk_management.position_sizer import PositionSizerV2
 
 class TestExecution(unittest.TestCase):
     def setUp(self):
         self.mock_client = Mock()
         self.position_manager = PositionManager()
-        self.position_sizer = PositionSizer()
+        self.position_sizer = PositionSizerV2()
         
-        self.executor = TradeExecutor(
+        self.executor = TradeExecutorV2(
             self.mock_client,
             self.position_manager,
             self.position_sizer

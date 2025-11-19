@@ -1,4 +1,4 @@
-from .trade_executor import TradeExecutor
+from .trade_executor import TradeExecutorV2
 from .order_tracker import OrderTracker
 
-__all__ = ['TradeExecutor', 'OrderTracker']
+__all__ = ['TradeExecutorV2', 'OrderTracker']

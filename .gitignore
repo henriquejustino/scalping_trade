@@ -29,7 +29,6 @@ env.bak/
 venv.bak/
 
 # Dados e Logs
-data/
 *.log
 *.csv
 *.json

@@ -1,22 +1,27 @@
+"""
+Trade Executor V2 e Order Tracker V2 - Execução Robusta com Validações
+"""
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Dict, List
+from datetime import datetime
 from loguru import logger
 from core.binance_client import BinanceClient
 from core.position_manager import Position, PositionManager
-from risk_management.position_sizer import PositionSizer
-from config.settings import settings
-import pandas as pd
+from core.engine.base_engine import Position as BasePosition
 
-class TradeExecutor:
-    def __init__(
-        self,
-        client: BinanceClient,
-        position_manager: PositionManager,
-        position_sizer: PositionSizer
-    ):
+# ============================================================================
+# FILE: execution/trade_executor_v2.py
+# ============================================================================
+
+class TradeExecutorV2:
+    """Executor de trades robusto com validações completas"""
+    
+    def __init__(self, client: BinanceClient, position_sizer):
         self.client = client
-        self.position_manager = position_manager
         self.position_sizer = position_sizer
+        self.position_manager = PositionManager()
+        self.executed_trades = []
+        self.failed_executions = []
     
     def execute_entry(
         self,
@@ -26,49 +31,86 @@ class TradeExecutor:
         stop_loss: Decimal,
         take_profit: Decimal,
         signal_strength: float,
-        capital: Decimal
+        capital: Decimal,
+        volume_ratio: float = 1.0,
+        regime: str = "RANGING"
     ) -> bool:
-        """Executa entrada na posição"""
+        """
+        ✅ ROBUSTO: Executa entrada com validações
+        """
         
         try:
-            # Obtém filtros do símbolo
-            filters = self.client.get_symbol_filters(symbol)
-            if not filters:
-                logger.error(f"Filtros não encontrados para {symbol}")
+            # === 1. VALIDAÇÃO BÁSICA ===
+            if side not in ['BUY', 'SELL']:
+                logger.error(f"Side inválido: {side}")
                 return False
             
-            # Calcula tamanho da posição
+            if entry_price <= 0 or stop_loss <= 0 or take_profit <= 0:
+                logger.error("Preços inválidos")
+                return False
+            
+            # === 2. VALIDAÇÃO DO TRADE ===
+            if not self._validate_trade_logic(side, entry_price, stop_loss, take_profit):
+                logger.warning("Trade lógicamente inválido")
+                return False
+            
+            # === 3. VALIDAÇÃO DE POSIÇÕES ===
+            if self.position_manager.has_position(symbol):
+                logger.warning(f"Posição já aberta em {symbol}")
+                return False
+            
+            if len(self.position_manager.get_all_positions()) >= 3:
+                logger.warning("Máximo de posições atingido")
+                return False
+            
+            # === 4. CALCULA TAMANHO DA POSIÇÃO ===
+            filters = self.client.get_symbol_filters(symbol)
+            
             quantity = self.position_sizer.calculate_dynamic_position_size(
                 capital=capital,
                 entry_price=entry_price,
                 stop_loss_price=stop_loss,
                 symbol_filters=filters,
-                signal_strength=signal_strength
+                signal_strength=signal_strength,
+                volume_ratio=volume_ratio,
+                regime=regime
             )
             
-            if quantity is None:
-                logger.warning(f"Não foi possível calcular posição para {symbol}")
+            if quantity is None or quantity <= 0:
+                logger.warning(f"Quantidade inválida: {quantity}")
                 return False
             
-            # Executa ordem
-            order = self.client.place_market_order(
-                symbol=symbol,
-                side=side,
-                quantity=quantity
-            )
+            # === 5. COLOCA ORDEM ===
+            try:
+                order = self.client.place_market_order(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity
+                )
+                
+                if not order:
+                    logger.error("Ordem retornou None")
+                    return False
+            except Exception as e:
+                logger.error(f"Erro ao colocar ordem: {e}")
+                self.failed_executions.append({
+                    'timestamp': datetime.now(),
+                    'symbol': symbol,
+                    'error': str(e)
+                })
+                return False
             
-            # Calcula níveis de take profit
+            # === 6. CRIA POSIÇÃO ===
             distance = abs(take_profit - entry_price)
+            from config.settings import settings
+            
             if side == 'BUY':
                 tp1 = entry_price + (distance * settings.TP1_PERCENTAGE)
                 tp2 = entry_price + (distance * settings.TP2_PERCENTAGE)
-                tp3 = take_profit
             else:
                 tp1 = entry_price - (distance * settings.TP1_PERCENTAGE)
                 tp2 = entry_price - (distance * settings.TP2_PERCENTAGE)
-                tp3 = take_profit
             
-            # Cria posição
             position = Position(
                 symbol=symbol,
                 side=side,
@@ -78,28 +120,37 @@ class TradeExecutor:
                 take_profit=take_profit,
                 tp1=tp1,
                 tp2=tp2,
-                tp3=tp3,
+                tp3=take_profit,
                 signal_strength=signal_strength
             )
             
             self.position_manager.add_position(position)
             
+            self.executed_trades.append({
+                'timestamp': datetime.now(),
+                'symbol': symbol,
+                'side': side,
+                'entry_price': float(entry_price),
+                'quantity': float(quantity),
+                'order_id': order.get('orderId')
+            })
+            
             logger.info(
-                f"🎯 Trade executado: {symbol} {side} {quantity} @ {entry_price}\n"
-                f"   SL: {stop_loss} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3}"
+                f"✅ TRADE EXECUTADO: {side} {quantity:.6f} {symbol} @ "
+                f"${entry_price:.2f} | SL: ${stop_loss:.2f} | TP: ${take_profit:.2f}"
             )
             
             return True
-            
+        
         except Exception as e:
-            logger.error(f"Erro ao executar trade {symbol}: {e}")
+            logger.error(f"Erro ao executar entrada: {e}", exc_info=True)
             return False
     
     def execute_exit(
         self,
         symbol: str,
         quantity: Optional[Decimal] = None,
-        reason: str = ""
+        reason: str = "Manual"
     ) -> bool:
         """Executa saída da posição"""
         
@@ -109,9 +160,7 @@ class TradeExecutor:
             return False
         
         try:
-            exit_quantity = quantity if quantity else position.current_quantity
-            
-            # Ordem inversa
+            exit_quantity = quantity if quantity else position.quantity
             exit_side = 'SELL' if position.side == 'BUY' else 'BUY'
             
             order = self.client.place_market_order(
@@ -120,23 +169,56 @@ class TradeExecutor:
                 quantity=exit_quantity
             )
             
+            if not order:
+                logger.error("Ordem de saída retornou None")
+                return False
+            
             # Atualiza posição
             if quantity:
-                position.partial_exit(quantity / position.current_quantity)
+                position.partial_exit(quantity / position.quantity)
             else:
-                current_price = self.client.get_current_price(symbol)
-                pnl = position.calculate_pnl(current_price)
-                pnl_pct = position.calculate_pnl_percentage(current_price)
-                
-                logger.info(
-                    f"💰 Trade fechado: {symbol} {reason}\n"
-                    f"   PnL: ${pnl:.2f} ({pnl_pct:.2f}%)"
-                )
-                
                 self.position_manager.close_position(symbol)
             
-            return True
+            logger.info(
+                f"✅ SAÍDA EXECUTADA: {exit_side} {exit_quantity:.6f} {symbol} "
+                f"({reason})"
+            )
             
+            return True
+        
         except Exception as e:
-            logger.error(f"Erro ao sair da posição {symbol}: {e}")
+            logger.error(f"Erro ao executar saída: {e}")
             return False
+    
+    def _validate_trade_logic(
+        self,
+        side: str,
+        entry: Decimal,
+        sl: Decimal,
+        tp: Decimal
+    ) -> bool:
+        """✅ Validação lógica do trade"""
+        
+        if side == 'BUY':
+            if sl >= entry or tp <= entry:
+                return False
+        else:
+            if sl <= entry or tp >= entry:
+                return False
+        
+        # R:R mínimo 1:1
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
+        
+        if reward < risk:
+            return False
+        
+        return True
+    
+    def has_position(self, symbol: str) -> bool:
+        """Verifica se tem posição aberta"""
+        return self.position_manager.has_position(symbol)
+    
+    def get_positions(self) -> List:
+        """Retorna todas as posições abertas"""
+        return self.position_manager.get_all_positions()
